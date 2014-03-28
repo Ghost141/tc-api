@@ -1,0 +1,5 @@
+SELECT
+  1
+FROM client
+WHERE client_id = DECODE(@client_id@, 0, client_id, @client_id@)
+AND NVL(cmc_account_id, '') = DECODE('@cmc_account_id@', '', NVL(cmc_account_id, ''), '@cmc_account_id@')

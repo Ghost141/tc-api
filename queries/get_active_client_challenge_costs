@@ -1,0 +1,50 @@
+SELECT
+  cl.customer_name AS customer_name
+, cl.customer_id AS customer_id
+, tdp.name AS project_name
+, tdp.project_id AS project_id
+, pn.value AS challenge_name
+, p.project_id AS challenge_id
+, pcl.name AS challenge_type
+, psl.name AS challenge_status
+, NVL(reg.actual_start_time, reg.scheduled_start_time) AS posting_date
+, (SELECT MAX(NVL(actual_end_time, scheduled_end_time)) FROM project_phase pp WHERE pp.project_id = p.project_id) AS completion_date
+, (SELECT MIN(NVL(actual_start_time, scheduled_start_time)) FROM project_phase pp WHERE pp.project_id = p.project_id) AS start_date
+, NVL(reg.actual_end_time, reg.scheduled_end_time) AS reg_end_date
+, NVL(sub.actual_end_time, sub.scheduled_end_time) AS sub_end_date
+, NVL(checkpoint.actual_end_time, checkpoint.scheduled_end_time) AS checkpoint_end_date
+, NVL(firstPrize.prize_amount, 0) AS first_prize
+, NVL(secondPrize.prize_amount, 0) AS second_prize
+, NVL((SELECT prize_amount * number_of_submissions FROM prize pr WHERE pr.project_id = p.project_id AND pr.prize_type_id = 14), 0) AS checkpoint_prize
+, (SELECT COUNT(*) FROM resource WHERE resource_role_id = 1 AND project_id = p.project_id) AS number_of_registrants
+, (SELECT COUNT(DISTINCT submission_id) FROM submission sub, upload up WHERE up.project_id = p.project_id AND submission_type_id = 1 AND submission_status_id = 1) AS number_of_submissions
+, (SELECT COUNT(DISTINCT submission_id) FROM submission sub, upload up WHERE up.project_id = p.project_id AND submission_type_id = 3 AND submission_status_id = 1) AS number_of_checkpoint_submissions
+, (SELECT MAX(scheduled_end_time) FROM project_phase pp WHERE pp.project_id = p.project_id) AS challenge_scheduled_end_date
+, (SELECT SUM(TO_NUMBER(ri.value)) FROM resource r INNER JOIN resource_info ri ON ri.resource_id = r.resource_id AND ri.resource_info_type_id = 5 WHERE r.resource_role_id = 1) AS reliability
+-- , AS challenge_member_cost
+-- , AS challenge_fee
+-- , AS challenge_total_cost
+FROM project p
+INNER JOIN project_category_lu pcl ON pcl.project_category_id = p.project_category_id
+INNER JOIN project_status_lu psl ON psl.project_status_id = p.project_status_id
+INNER JOIN project_phase reg ON reg.phase_type_id = 1 AND reg.project_id = p.project_id
+INNER JOIN project_phase sub ON sub.phase_type_id = 2 AND sub.project_id = p.project_id
+LEFT JOIN project_phase checkpoint ON checkpoint.phase_type_id = 15 AND checkpoint.project_id = p.project_id
+INNER JOIN prize firstPrize ON firstPrize.project_id = p.project_id AND firstPrize.prize_type_id = 15 AND place = 1
+LEFT JOIN prize secondPrize ON secondPrize.project_id = p.project_id AND secondPrize.prize_type_id = 15 AND secondPrize.place = 2
+INNER JOIN project_info pn ON pn.project_id = p.project_id AND pn.project_info_type_id = 6
+LEFT JOIN tc_direct_project tdp ON tdp.project_id = p.tc_direct_project_id
+LEFT JOIN (
+    SELECT 
+      tcp.project_id
+    , c.name AS customer_name
+    , c.client_id AS customer_id
+    , c.cmc_account_id
+    FROM time_oltp:client_project tcp
+    , time_oltp:client c
+    WHERE c.client_id = tcp.client_id
+) cl ON cl.project_id = p.project_id
+WHERE p.project_status_id = 1
+AND LOWER(NVL(cl.customer_name, '')) = LOWER(DECODE('@customer_number@', '', NVL(cl.customer_name, ''), '@customer_number@'))
+AND LOWER(NVL(cl.cmc_account_id, '')) = LOWER(DECODE('@cmc_account_id@', '', NVL(cl.cmc_account_id, ''), '@cmc_account_id@'))
+AND NVL(cl.customer_id, 0) = DECODE(@client_id@, 0, NVL(cl.customer_id, 0), @client_id@)

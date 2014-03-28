@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013 - 2014 TopCoder Inc., All Rights Reserved.
  *
- * @version 1.26
+ * @version 1.27
  * @author vangavroche, Sky_, muzehyun, kurtrips, Ghost_141, ecnu_haozi, hesibo, LazyChild
  * Changes in 1.1:
  * - add routes for search challenges
@@ -46,7 +46,6 @@
  * - Combine Challenge Registration API(BUGR-11058)
  * changes in 1.18:
  * - added routes for data platforms and technologies
-<<<<<<< HEAD
  * Changes in 1.19:
  * - added route for agree term of use api.
  * Changes in 1.20:
@@ -64,6 +63,8 @@
  * - add route for register marathon match challenge api.
  * changes in 1.26:
  * - added route for handling design submission
+ * Changes in 1.27:
+ * - add route for get active client challenge costs api.
  */
 
 /* ---------------------
@@ -192,6 +193,7 @@ exports.routes = {
         { path: "/:apiVersion/download/document/:docId", action: "downloadDocument" },
 
         { path: "/:apiVersion/reports/client/costs", action: "getClientChallengeCosts" },
+        { path: "/:apiVersion/reports/client/activeCosts", action: "getActiveClientChallengeCosts" },
         { path: "/:apiVersion/reports/costs/:startDate/:endDate", action: "getChallengeCosts" },
 
         { path: "/:apiVersion/bugs/:jiraProjectId/:status", action: "bugs" },

@@ -1,0 +1,10 @@
+INSERT INTO client(client_id, name, company_id, payment_term_id, status, salestax, start_date, end_date, creation_user, creation_date, modification_user, modification_date, cmc_account_id, customer_number)
+VALUES(2001, 'testClient2001', 1, 1, 1, 0, current, current + 3 units year, 132456, current, 132456, current, 'cmc', 'number');
+
+INSERT INTO project(project_id, company_id, name, active, sales_tax, po_box_number, payment_terms_id, start_date, end_date, creation_user, creation_date, modification_user, modification_date, description)
+VALUES(2001, 1, 'Test Challenge 2001', 1, 0, 'test', 1, current, current + 3 units year, 132456, current, 132456, current, 'test');
+INSERT INTO project(project_id, company_id, name, active, sales_tax, po_box_number, payment_terms_id, start_date, end_date, creation_user, creation_date, modification_user, modification_date, description)
+VALUES(2002, 1, 'Test Challenge 2002', 1, 0, 'test', 1, current, current + 3 units year, 132456, current, 132456, current, 'test');
+
+INSERT INTO client_project(client_id, project_id, creation_user, creation_date, modification_user, modification_date)
+VALUES(2001, 2001, 132456, current, 132456, current);

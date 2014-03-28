@@ -1,0 +1,26 @@
+{
+    "history": [
+        {
+            "customerName": "testClient2001",
+            "customerId": 2001,
+            "projectName": "Test Project 2001",
+            "projectId": 2001,
+            "challengeName": "Test Challenge 2001",
+            "challengeId": 2001,
+            "challengeType": "Assembly Competition",
+            "checkpointPrize": 0,
+            "challengeStatus": "Active",
+            "challengeDuration": 4,
+            "currentPhase": [
+                "Registration",
+                "Submission"
+            ],
+            "firstPrize": 1500,
+            "totalPrize": 1500,
+            "numberOfRegistrants": 2,
+            "numberOfSubmissions": 0,
+            "numberOfCheckpointSubmissions": 0,
+            "reliability": 277.2326
+        }
+    ]
+}

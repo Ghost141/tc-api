@@ -1,0 +1,6 @@
+DELETE FROM resource_info WHERE resource_id IN (2001, 2002, 2003, 2004);
+DELETE FROM resource WHERE project_id IN (2001, 2002);
+DELETE FROM project_info WHERE project_id IN (2001, 2002);
+DELETE FROM project_phase WHERE project_id IN (2001, 2002);
+DELETE FROM prize WHERE project_id IN (2001, 2002);
+DELETE FROM project WHERE project_id IN (2001, 2002);

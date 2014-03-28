@@ -1,12 +1,15 @@
 /*
  * Copyright (C) 2014 TopCoder Inc., All Rights Reserved.
  *
- * @version 1.2
- * @author Ghost_141, Sky_, muzehyun
+ * @version 1.3
+ * @author Ghost_141, Sky_, muzehyun, TCSASSEMBLER
  * Changes in 1.1
  * - add invoice history (challenge costs) api.
  * Changes in 1.2
  * - add active billing account api.
+ * Changes in 1.3:
+ * - Implement the getActiveClientChallengeCosts API.
+ * - add activeClientChallengeCostsResponseField and activeClientChallengeCostsDatabaseField
  */
 'use strict';
 
@@ -14,6 +17,7 @@ require('datejs');
 var async = require('async');
 var _ = require('underscore');
 var moment = require('moment');
+var S = require('string');
 var UnauthorizedError = require('../errors/UnauthorizedError');
 var NotFoundError = require('../errors/NotFoundError');
 
@@ -42,6 +46,46 @@ var DATE_FORMAT = 'YYYY-M-D';
  * The date format for output date field.
  */
 var OUTPUT_DATE_FORMAT = 'YYYY-MM-DD';
+
+/**
+ * The response field for get active client challenge costs api.
+ * @since 1.3
+ */
+var activeClientChallengeCostsResponseField = [
+    'customerName',
+    'customerId',
+    'projectName',
+    'projectId',
+    'challengeName',
+    'challengeId',
+    'challengeType',
+    'challengeStatus',
+    'postingDate',
+    'completionDate',
+    'challengeFulfillment',
+    'challengeMemberCost',
+    'challengeFee',
+    'challengeTotalCost',
+    'challengeDuration',
+    'regEndDate',
+    'subEndDate',
+    'checkpointEndDate',
+    'currentPhase',
+    'firstPrize',
+    'totalPrize',
+    'checkpointPrize',
+    'numberOfRegistrants',
+    'numberOfSubmissions',
+    'numberOfCheckpointSubmissions',
+    'challengeScheduledEndDate',
+    'reliability'
+];
+
+/**
+ * The database field for active client challenge costs api.
+ * @since 1.3
+ */
+var activeClientChallengeCostsDatabaseField = _.map(activeClientChallengeCostsResponseField, function (item) { return new S(item).underscore().s; });
 
 var getChallengeCosts = function (api, connection, next) {
     var helper = api.helper, caller = connection.caller, error, challengeId, projectId, billingId, clientId, startDate,
@@ -151,6 +195,90 @@ var getChallengeCosts = function (api, connection, next) {
             helper.handleError(api, connection, err);
         } else {
             connection.response = challengeCosts;
+        }
+        next(connection, true);
+    });
+};
+
+/**
+ * Handle Get Active Client Challenge Costs API.
+ * @param {Object} api - the api object.
+ * @param {Object} connection - the connection object.
+ * @param {Function} next - the callback function.
+ * @since 1.3
+ */
+var getActiveClientChallengeCosts = function (api, connection, next) {
+    var helper = api.helper, sqlParameters, clientId = 0, error, result,
+        cmc = connection.params.sfdcAccountId || '',
+        customerNumber = connection.params.customerNumber || '',
+        dbConnectionMap = connection.dbConnectionMap;
+    async.waterfall([
+        function (cb) {
+            //Admin only
+            cb(helper.checkAdmin(connection, 'Authorized information needed.', 'You are not allowed to access this api.'));
+        },
+        function (cb) {
+            if (_.isDefined(connection.params.clientId)) {
+                clientId = Number(connection.params.clientId);
+                error = error || helper.checkPositiveInteger(clientId, "clientId");
+                //don't check maxInt, because clientId is DECIMAL in database, not integer
+            }
+            cb(error);
+        }, function (cb) {
+            sqlParameters = {
+                client_id: clientId,
+                cmc_account_id: cmc,
+                customer_number: customerNumber
+            };
+            if (_.isDefined(connection.params.clientId) || _.isDefined(connection.params.sfdcAccountId)) {
+                api.dataAccess.executeQuery('check_client_exist', sqlParameters, dbConnectionMap, cb);
+            } else {
+                cb(null, ["dummy"]);
+            }
+        }, function (results, cb) {
+            if (results.length !== 0) {
+                cb(new NotFoundError('Client not found'));
+                return;
+            }
+            async.parallel({
+                cost: function (cbx) {
+                    api.dataAccess.executeQuery('get_active_client_challenge_costs', sqlParameters, dbConnectionMap, cbx);
+                },
+                currentPhase: function (cbx) {
+                    api.dataAccess.executeQuery('get_active_client_challenge_costs_current_phases', sqlParameters, dbConnectionMap, cbx);
+                }
+            }, cb);
+        },
+        function (results, cb) {
+            result = {
+                history: []
+            };
+            var currentPhasesMap = _.groupBy(results.currentPhase, function (item) { return Number(item.challenge_id); });
+
+            // Get the results
+            result.history = _.map(results.cost, function (row) {
+                // Map the field from database to response.
+                var item = _.object(activeClientChallengeCostsResponseField,
+                    _.map(activeClientChallengeCostsDatabaseField, function (name) {
+                        if (name === 'challenge_duration') {
+                            return Number((moment(row.completion_date).diff(moment(row.start_date), 'hours') / 24).toFixed(1));
+                        }
+                        return row[name];
+                    }));
+                // Extend the response with currentPhase array.
+                item = _.extend(item,  {
+                    currentPhase: _.map(currentPhasesMap[row.challenge_id], function (o) { return o.name; }),
+                    totalPrize: Number((row.first_prize + row.second_prize + row.checkpoint_prize).toFixed(2))
+                });
+                return item;
+            });
+            cb();
+        }
+    ], function (err) {
+        if (err) {
+            helper.handleError(api, connection, err);
+        } else {
+            connection.response = result;
         }
         next(connection, true);
     });
@@ -340,3 +468,30 @@ exports.getActiveBillingAccounts = {
         });
     }
 }; // getActiveBillingAccounts
+
+/**
+ * Get Active Client Challenge Costs API.
+ *
+ * @since 1.3
+ */
+exports.getActiveClientChallengeCosts = {
+    name: "getActiveClientChallengeCosts",
+    description: "getActiveClientChallengeCosts",
+    inputs: {
+        required: [],
+        optional: ['clientId', 'sfdcAccountId', 'customerNumber']
+    },
+    blockedConnectionTypes: [],
+    outputExample: {},
+    version: 'v2',
+    transaction: 'read',
+    databases: ['time_oltp', 'tcs_catalog'],
+    run: function (api, connection, next) {
+        if (connection.dbConnectionMap) {
+            api.log("Execute getActiveClientChallengeCosts#run", 'debug');
+            getActiveClientChallengeCosts(api, connection, next);
+        } else {
+            api.helper.handleNoConnection(api, connection, next);
+        }
+    }
+};

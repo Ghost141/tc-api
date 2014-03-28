@@ -1,0 +1,8 @@
+SELECT
+  p.project_id AS challenge_id
+, ptl.name
+FROM project p
+INNER JOIN project_phase pp ON pp.project_id = p.project_id AND pp.phase_status_id = 2
+INNER JOIN phase_type_lu ptl ON ptl.phase_type_id = pp.phase_type_id
+WHERE p.project_status_id = 1
+ORDER BY pp.phase_type_id ASC

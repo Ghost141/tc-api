@@ -1,0 +1,51 @@
+INSERT INTO project(project_id, project_status_id, project_category_id, create_user, create_date, modify_user, modify_date, tc_direct_project_id)
+VALUES(2001, 1, 14, 132456, current, 132456, current, 2001);
+INSERT INTO project_phase(project_phase_id, project_id, phase_type_id, phase_status_id, scheduled_start_time, scheduled_end_time, duration, create_user, create_date, modify_user, modify_date)
+VALUES(2001, 2001, 1, 2, current, current + 2 units day, 86300000, 132456, current, 132456, current);
+INSERT INTO project_phase(project_phase_id, project_id, phase_type_id, phase_status_id, scheduled_start_time, scheduled_end_time, duration, create_user, create_date, modify_user, modify_date)
+VALUES(2002, 2001, 2, 2, current + 2 units day, current + 4 units day + 1 units hour, 86400000, 132456, current, 132456, current);
+
+INSERT INTO prize(prize_id, project_id, place, prize_amount, prize_type_id, number_of_submissions, create_user, create_date, modify_user, modify_date)
+VALUES(2001, 2001, 1, 1500, 15, 1, 132456, current, 132456, current);
+
+INSERT INTO project_info(project_id, project_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2001, 6, 'Test Challenge 2001', 132456, current, 132456, current);
+
+INSERT INTO resource(resource_id, resource_role_id, project_id, user_id, create_user, create_date, modify_user, modify_date)
+VALUES(2001, 1, 2001, 132456, 132456, current, 132456, current);
+INSERT INTO resource_info(resource_id, resource_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2001, 5, '80.5', 132456, current, 132456, current);
+
+INSERT INTO resource(resource_id, resource_role_id, project_id, user_id, create_user, create_date, modify_user, modify_date)
+VALUES(2002, 1, 2001, 132457, 132456, current, 132456, current);
+INSERT INTO resource_info(resource_id, resource_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2002, 5, '15.4', 132456, current, 132456, current);
+
+
+INSERT INTO project(project_id, project_status_id, project_category_id, create_user, create_date, modify_user, modify_date, tc_direct_project_id)
+VALUES(2002, 1, 14, 132456, current, 132456, current, 2002);
+INSERT INTO project_phase(project_phase_id, project_id, phase_type_id, phase_status_id, scheduled_start_time, scheduled_end_time, duration, create_user, create_date, modify_user, modify_date)
+VALUES(2003, 2002, 1, 2, current, current + 2 units day, 86300000, 132456, current, 132456, current);
+INSERT INTO project_phase(project_phase_id, project_id, phase_type_id, phase_status_id, scheduled_start_time, scheduled_end_time, duration, create_user, create_date, modify_user, modify_date)
+VALUES(2004, 2002, 2, 2, current + 2 units day, current + 4 units day + 1 units hour, 86400000, 132456, current, 132456, current);
+INSERT INTO project_phase(project_phase_id, project_id, phase_type_id, phase_status_id, scheduled_start_time, scheduled_end_time, duration, create_user, create_date, modify_user, modify_date)
+VALUES(2005, 2002, 15, 2, current + 2 units day, current + 4 units day + 1 units hour, 86400000, 132456, current, 132456, current);
+
+INSERT INTO prize(prize_id, project_id, place, prize_amount, prize_type_id, number_of_submissions, create_user, create_date, modify_user, modify_date)
+VALUES(2002, 2002, 1, 1500, 15, 1, 132456, current, 132456, current);
+INSERT INTO prize(prize_id, project_id, place, prize_amount, prize_type_id, number_of_submissions, create_user, create_date, modify_user, modify_date)
+VALUES(2003, 2002, 1, 100, 14, 5, 132456, current, 132456, current);
+
+INSERT INTO project_info(project_id, project_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2002, 6, 'Test Challenge 2002', 132456, current, 132456, current);
+
+INSERT INTO resource(resource_id, resource_role_id, project_id, user_id, create_user, create_date, modify_user, modify_date)
+VALUES(2003, 1, 2002, 132456, 132456, current, 132456, current);
+INSERT INTO resource_info(resource_id, resource_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2003, 5, '83.6666', 132456, current, 132456, current);
+
+INSERT INTO resource(resource_id, resource_role_id, project_id, user_id, create_user, create_date, modify_user, modify_date)
+VALUES(2004, 1, 2002, 132457, 132456, current, 132456, current);
+INSERT INTO resource_info(resource_id, resource_info_type_id, value, create_user, create_date, modify_user, modify_date)
+VALUES(2004, 5, '97.666', 132456, current, 132456, current);
+

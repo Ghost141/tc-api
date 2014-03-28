@@ -1,0 +1,10 @@
+{
+    "unauthorized": "Authorized information needed.",
+    "forbidden": "You are not allowed to access this api.",
+    "clientId": {
+        "notPositive": "clientId should be positive.",
+        "notNumber": "clientId should be number.",
+        "notInteger": "clientId should be Integer."
+    },
+    "notFound": "Client not found"
+}
