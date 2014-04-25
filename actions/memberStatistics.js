@@ -1,8 +1,8 @@
 /*
  * Copyright (C) 2013 - 2014 TopCoder Inc., All Rights Reserved.
  *
- * @version 1.13
- * @author Sky_, Ghost_141, muzehyun, hesibo, isv, LazyChild
+ * @version 1.16
+ * @author Sky_, Ghost_141, muzehyun, hesibo, isv, LazyChild, jamestc
  * changes in 1.1:
  * - implement marathon statistics
  * changes in 1.2:
@@ -33,13 +33,24 @@
  * - removed unused import for IllegalArgumentError
  * changes in 1.13
  * - add getCopilotStatistics API.
+ * changes in 1.14
+ * - added my profile api
+ * - modified public profile api(basic user profile api), only return public information
+ * changes in 1.15
+ * - enabled granular data access in getBasicUserProfile via optional query param
+ * Changes in 1.16:
+ * - Implement the upload member photo API.
  */
 "use strict";
 var async = require('async');
 var _ = require('underscore');
+var path = require('path');
+var fs = require('fs');
+var S = require('string');
 var IllegalArgumentError = require('../errors/IllegalArgumentError');
 var BadRequestError = require('../errors/BadRequestError');
 var NotFoundError = require('../errors/NotFoundError');
+var UnauthorizedError = require('../errors/UnauthorizedError');
 
 /**
  * check whether given user is activated.
@@ -101,128 +112,155 @@ function checkUserExistAndActivate(handle, api, dbConnectionMap, callback) {
 /**
  * Get the user basic profile information.
  * @param {Object} api - the api object.
+ * @param {String} handle - the handle parameter
+ * @param {Boolean} privateInfoEligibility - flag indicate whether private information is included in result
  * @param {Object} dbConnectionMap - the database connection map.
  * @param {Object} connection - the connection.
  * @param {Function} next - the callback function.
  */
-function getBasicUserProfile(api, dbConnectionMap, connection, next) {
-    var handle = connection.params.handle,
-        helper = api.helper,
+function getBasicUserProfile(api, handle, privateInfoEligibility, dbConnectionMap, connection, next) {
+    var helper = api.helper,
         sqlParams = {
             handle: handle
         },
         result,
-        privateInfoEligibility = false;
+        loadData,
+        requestedData,
+        parts;
+
+    // check for an optional data query string param than enables loading a subset of data
+    requestedData = connection.rawConnection.parsedURL.query.data;
+    if (_.isDefined(requestedData)) {
+        // NOTE: an empty value is acceptable and indicates only basic data is returned
+        loadData = {};
+        if (requestedData) {
+            // data is comma delimited string of requested data
+            parts = requestedData.split(',');
+            _.each(parts, function (part) {
+                loadData[part] = true;
+            });
+        }
+        api.log("Requested data param found: " + requestedData, "debug");
+    } else {
+        loadData = {earnings: true, ratings: true, achievements: true, address: true, email: true}; // load all data by default
+    }
 
     async.waterfall([
         function (cb) {
-            checkUserExistAndActivate(handle, api, dbConnectionMap, cb);
+            if (privateInfoEligibility) {
+                checkUserActivated(handle, api, dbConnectionMap, function (err, result) {
+                    if (err) {
+                        cb(err);
+                    } else {
+                        cb(result);
+                    }
+                });
+            } else {
+                checkUserExistAndActivate(handle, api, dbConnectionMap, cb);
+            }
         }, function (cb) {
             var execQuery = function (name) {
                 return function (cbx) {
                     api.dataAccess.executeQuery('get_user_basic_profile_' + name, sqlParams, dbConnectionMap, cbx);
                 };
             };
-            privateInfoEligibility = connection.caller.accessLevel === 'admin' || connection.caller.handle === handle;
             async.parallel({
                 basic: execQuery('basic'),
-                earning: execQuery('overall_earning'),
-                ratingSummary: execQuery('rating_summary'),
-                achievements: execQuery('achievements'),
-                privateInfo: privateInfoEligibility ? execQuery('private') : function (cbx) { cbx(); },
-                emails: privateInfoEligibility ? execQuery('private_email') : function (cbx) { cbx(); }
+                earning: loadData.earnings ? execQuery('overall_earning') : function (cbx) { cbx(); },
+                ratingSummary: loadData.ratings ? execQuery('rating_summary') : function (cbx) { cbx(); },
+                achievements: loadData.achievements ? execQuery('achievements') : function (cbx) { cbx(); },
+                privateInfo: loadData.address && privateInfoEligibility ? execQuery('private') : function (cbx) { cbx(); },
+                emails: loadData.email && privateInfoEligibility ? execQuery('private_email') : function (cbx) { cbx(); }
             }, cb);
         }, function (results, cb) {
-            var basic = results.basic[0], earning = results.earning[0], ratingSummary = results.ratingSummary,
-                achievements = results.achievements, privateInfo,
-                mapRatingSummary = function (ratings) {
-                    var ret = [];
-                    ratings.forEach(function (item) {
-                        ret.push({
-                            name: helper.getPhaseName(item.phase_id),
-                            rating: item.rating,
-                            colorStyle: helper.getColorStyle(item.rating)
-                        });
+            var basic = results.basic[0],
+                ratingSummary,
+                achievements,
+                emails,
+                appendIfNotEmpty,
+                privateInfo,
+                address;
+
+            result = {
+                handle: basic.handle,
+                country: basic.country,
+                memberSince: basic.member_since,
+                quote: basic.quote,
+                photoLink: basic.photo_link || ''
+            };
+
+            if (loadData.earnings && _.isDefined(basic.show_earnings) && basic.show_earnings !== 'hide') {
+                result.overallEarning = results.earning[0].overall_earning;
+            }
+
+            if (loadData.ratings) {
+                ratingSummary = [];
+                results.ratingSummary.forEach(function (item) {
+                    ratingSummary.push({
+                        name: helper.getPhaseName(item.phase_id),
+                        rating: item.rating,
+                        colorStyle: helper.getColorStyle(item.rating)
                     });
-                    return ret;
-                },
-                mapAchievements = function (achievements) {
-                    var ret = [], achieveItem;
-                    achievements.forEach(function (item) {
-                        achieveItem = {
-                            date: item.achievement_date,
-                            description: item.description
-                        };
-                        ret.push(achieveItem);
+                });
+                result.ratingSummary = ratingSummary;
+            }
+
+            if (loadData.achievements) {
+                achievements = [];
+                results.achievements.forEach(function (item) {
+                    achievements.push({
+                        date: item.achievement_date,
+                        description: item.description
                     });
-                    return ret;
-                },
-                mapEmails = function (emails) {
-                    var ret = [];
-                    emails.forEach(function (item) {
-                        ret.push({
-                            email: item.email,
-                            type: item.type,
-                            status: item.status
-                        });
+                });
+                // TODO: why is this capitalized?
+                result.Achievements = achievements;
+            }
+
+            if (privateInfoEligibility && loadData.email) {
+                emails = [];
+                results.emails.forEach(function (item) {
+                    emails.push({
+                        email: item.email,
+                        type: item.type,
+                        status: item.status
                     });
-                    return ret;
-                },
+                });
+                result.emails = emails;
+            }
+
+            if (privateInfoEligibility && loadData.address && results.privateInfo && results.privateInfo[0]) {
                 appendIfNotEmpty = function (str) {
                     var ret = '';
                     if (str && str.length > 0) {
                         ret += ', ' + str;
                     }
                     return ret;
-                },
-                getAddressString = function (privateInfo) {
-                    var address = privateInfo.address1;
-                    if (!address) { return undefined; }  // if address1 is undefined, there is no address.
+                };
 
+                privateInfo = results.privateInfo[0];
+
+                result.name = privateInfo.first_name + ' ' + privateInfo.last_name;
+                result.age = privateInfo.age;
+                result.gender = privateInfo.gender;
+                result.shirtSize = privateInfo.shirt_size;
+
+                address = privateInfo.address1;
+                // if address1 is undefined, there is no address.
+                if (address) {
                     address += appendIfNotEmpty(privateInfo.address2);
                     address += appendIfNotEmpty(privateInfo.address3);
                     address += ', ' + privateInfo.city;
                     address += appendIfNotEmpty(privateInfo.state);
                     address += ', ' + privateInfo.zip + ', ' + privateInfo.country;
-                    return address;
-                };
-            result = {
-                handle: basic.handle,
-                country: basic.country,
-                memberSince: basic.member_since,
-                overallEarning: earning.overall_earning,
-                quote: basic.quote,
-                photoLink: basic.photo_link || '',
-                isCopilot: {
-                    value: basic.is_copilot,
-                    software: basic.is_software_copilot,
-                    studio: basic.is_studio_copilot
-                },
-                isPM: basic.is_pm,
-
-                ratingSummary: mapRatingSummary(ratingSummary),
-                Achievements: mapAchievements(achievements)
-            };
-
-            if (!_.isDefined(basic.show_earnings) || basic.show_earnings === 'hide') {
-                delete result.overallEarning;
+                    result.address = address;
+                }
             }
 
             if (result.isPM) {
                 delete result.ratingSummary;
             }
 
-            if (privateInfoEligibility) {
-                result.emails = mapEmails(results.emails);
-                if (results.privateInfo && results.privateInfo[0]) {
-                    privateInfo = results.privateInfo[0];
-                    result.name = privateInfo.first_name + ' ' + privateInfo.last_name;
-                    result.address = getAddressString(privateInfo);
-                    result.age = privateInfo.age;
-                    result.gender = privateInfo.gender;
-                    result.shirtSize = privateInfo.shirt_size;
-                }
-            }
             cb();
         }
     ], function (err) {
@@ -253,6 +291,174 @@ function mapHistory(rows) {
         });
     });
     return ret;
+}
+
+/**
+ * Handle upload member photo here.
+ * @param {Object} api - the api object.
+ * @param {Object} connection - the connection object.
+ * @param {Function} next - the callback function.
+ * @since 1.16
+ */
+function uploadMemberPhoto(api, connection, next) {
+    var helper = api.helper,
+        caller = connection.caller,
+        photo = connection.params.photo,
+        storePath = api.config.general.memberPhoto.storeDir,
+        sqlParams = {},
+        dbConnectionMap = connection.dbConnectionMap,
+        fileToDelete,
+        fileName;
+
+    async.waterfall([
+        function (cb) {
+            if (photo.constructor.name !== 'File') {
+                cb(new BadRequestError('The photo has to be a file.'));
+                return;
+            }
+            // Check the upload file type.
+            if (helper.checkContains(api.config.general.memberPhoto.validTypes, photo.type.substring(photo.type.lastIndexOf('/') + 1), 'photoType')) {
+                cb(new BadRequestError('The photo has to be in following format: ' + api.config.general.memberPhoto.validTypes + '.'));
+                return;
+            }
+            cb(helper.checkMember(connection, 'Authorization information needed.'));
+        },
+        function (cb) {
+            fs.stat(photo.path, function (err, stats) {
+                if (stats.size > api.config.general.memberPhoto.fileSizeLimit) {
+                    cb(new BadRequestError('The photo should be less than 1Mb.'));
+                    return;
+                }
+                cb();
+            });
+        },
+        function (cb) {
+            // Get the old file location.
+            sqlParams.user_id = caller.userId;
+            api.dataAccess.executeQuery('get_old_member_photo', sqlParams, dbConnectionMap, cb);
+        },
+        function (results, cb) {
+            var handle = caller.handle;
+            // Use the file type from the file name which is more accurate. For example xxx.jpg will be jpg instead of jpeg.
+            fileName = handle + '.' + photo.name.substring(photo.name.lastIndexOf('.') + 1).toLowerCase();
+            if (results.length !== 0) {
+                fileToDelete = results[0].image_path;
+            }
+            cb();
+        },
+        function (cb) {
+            // The server is linux server so the path separator is always '/'.
+            if (!new S(storePath).endsWith('/')) {
+                // If the store path is not ends with '/' fix it.
+                storePath += '/';
+            }
+            sqlParams.path = storePath;
+            // Get path id from database.
+            api.dataAccess.executeQuery('get_path', sqlParams, dbConnectionMap, cb);
+        },
+        function (results, cb) {
+            if (results.length === 0) {
+                // If we don't have this store path in server. Insert it.
+                api.idGenerator.getNextIDFromDb('PATH_SEQ', 'informixoltp', dbConnectionMap, function (err, pathId) {
+                    if (err) {
+                        cb(err);
+                        return;
+                    }
+                    sqlParams.path_id = pathId;
+                    api.dataAccess.executeQuery('insert_path', sqlParams, dbConnectionMap, function (err) { cb(err); });
+                });
+            } else {
+                // If we have this path, just store it for later.
+                sqlParams.path_id = results[0].path_id;
+                cb();
+            }
+        },
+        function (cb) {
+            // Get image id from database.
+            api.dataAccess.executeQuery('get_image', sqlParams, dbConnectionMap, cb);
+        },
+        function (results, cb) {
+            sqlParams.file_name = fileName;
+            sqlParams.image_type_id = 1;
+            if (results.length === 0) {
+                // We don't have coder_image_xref and image record in database. Insert them all.
+                api.idGenerator.getNextIDFromDb('IMAGE_SEQ', 'informixoltp', dbConnectionMap, function (err, imageId) {
+                    // Get the image id first.
+                    if (err) {
+                        cb(err);
+                        return;
+                    }
+                    sqlParams.image_id = imageId;
+                    sqlParams.link = sqlParams.path + sqlParams.file_name;
+
+                    async.waterfall([
+                        // Insert image and coder image xref in sequence.
+                        function (cbx) {
+                            api.dataAccess.executeQuery('insert_image',  sqlParams, dbConnectionMap, function (err) {
+                                cbx(err);
+                            });
+                        },
+                        function (cbx) {
+                            api.dataAccess.executeQuery('insert_coder_image_xref', sqlParams, dbConnectionMap, function (err) {
+                                cbx(err);
+                            });
+                        }
+                    ], cb);
+                });
+            } else {
+                // We have records in database, update them.
+                sqlParams.image_id = results[0].image_id;
+                api.dataAccess.executeQuery('update_image', sqlParams, dbConnectionMap, function (err) {
+                    cb(err);
+                });
+            }
+        }
+    ], function (err) {
+        if (err) {
+            helper.handleError(api, connection, err);
+            next(connection, true);
+        } else {
+            async.waterfall([
+                function (cb) {
+                    // Delete the old file first.
+                    // If we get the file path from database before then we need to delete it. If we don't get it just ignore the delete part.
+                    if (_.isDefined(fileToDelete)) {
+                        // Only delete the exist file.
+                        fs.exists(fileToDelete, function (exist) {
+                            if (exist) {
+                                // If the delete fail, an error will be passed. So we can rollback.
+                                fs.unlink(fileToDelete, cb);
+                            } else {
+                                cb();
+                            }
+                        });
+                    } else {
+                        // If nothing to delete then move to next step.
+                        cb();
+                    }
+                },
+                function (cb) {
+                    // Write the new file.
+                    fs.readFile(photo.path, function (err, data) {
+                        if (err) {
+                            cb(err);
+                        } else {
+                            fs.writeFile(path.join(storePath, fileName), data, cb);
+                        }
+                    });
+                }
+            ], function (err) {
+                if (err) {
+                    // Handle the error if delete old file and write new file has error.
+                    helper.handleError(api, connection, err);
+                } else {
+                    // All success.
+                    connection.response = { message: "Success" };
+                }
+                next(connection, true);
+            });
+        }
+    });
 }
 
 /**
@@ -375,8 +581,8 @@ exports.getMarathonStatistics = {
 
 
 /**
-* The API for getting software statistics
-*/
+ * The API for getting software statistics
+ */
 exports.getSoftwareStatistics = {
     name: "getSoftwareStatistics",
     description: "getSoftwareStatistics",
@@ -418,12 +624,13 @@ exports.getSoftwareStatistics = {
                 checkUserExistAndActivate(handle, api, dbConnectionMap, cb);
             }, function (cb) {
                 var execQuery = function (name, cbx) {
-                    api.dataAccess.executeQuery(name,
-                        sqlParams,
-                        dbConnectionMap,
-                        cbx);
-                }, phaseIds = _.isDefined(track) ?  [helper.getPhaseId(track)] :
-                        _(helper.softwareChallengeTypes).values().map(function (item) { return item.phaseId; }),
+                        api.dataAccess.executeQuery(name,
+                            sqlParams,
+                            dbConnectionMap,
+                            cbx);
+                    },
+                    phaseIds = _.isDefined(track) ? [helper.getPhaseId(track)] :
+                            _(helper.softwareChallengeTypes).values().map(function (item) { return item.phaseId; }),
                     challengeTypes = _.map(phaseIds, function (item) {
                         return item - 111;
                     });
@@ -517,8 +724,8 @@ exports.getSoftwareStatistics = {
 
 
 /**
-* The API for getting studio statistics
-*/
+ * The API for getting studio statistics
+ */
 exports.getStudioStatistics = {
     name: "getStudioStatistics",
     description: "getStudioStatistics",
@@ -588,8 +795,8 @@ exports.getStudioStatistics = {
 
 
 /**
-* The API for getting algorithm statistics
-*/
+ * The API for getting algorithm statistics
+ */
 exports.getAlgorithmStatistics = {
     name: "getAlgorithmStatistics",
     description: "getAlgorithmStatistics",
@@ -757,7 +964,7 @@ exports.getBasicUserProfile = {
             api.helper.handleNoConnection(api, connection, next);
         } else {
             api.log('Execute getBasicUserProfile#run', 'debug');
-            getBasicUserProfile(api, connection.dbConnectionMap, connection, next);
+            getBasicUserProfile(api, connection.params.handle, false, connection.dbConnectionMap, connection, next);
         }
     }
 };
@@ -833,8 +1040,8 @@ var getSoftwareRatingHistoryAndDistribution = function (api, connection, dbConne
 };
 
 /**
-* The API for getting software rating history and distribution
-*/
+ * The API for getting software rating history and distribution
+ */
 exports.getSoftwareRatingHistoryAndDistribution = {
     name: "getSoftwareRatingHistoryAndDistribution",
     description: "getSoftwareRatingHistoryAndDistribution",
@@ -1004,8 +1211,9 @@ exports.getCopilotStatistics = {
                             sqlParams,
                             dbConnectionMap,
                             cbx);
-                    }, phaseIds = _.isDefined(track) ?  [helper.getPhaseId(track)] :
-                        _(helper.softwareChallengeTypes).values().map(function (item) { return item.phaseId; }),
+                    },
+                    phaseIds = _.isDefined(track) ? [helper.getPhaseId(track)] :
+                            _(helper.softwareChallengeTypes).values().map(function (item) { return item.phaseId; }),
                     challengeTypes = _.map(phaseIds, function (item) {
                         return item - 111;
                     });
@@ -1046,5 +1254,65 @@ exports.getCopilotStatistics = {
             }
             next(connection, true);
         });
+    }
+};
+
+/**
+ * The API for getting my profile.
+ *
+ * @since 1.14
+ */
+exports.getMyProfile = {
+    name: "getMyProfile",
+    description: "get my profile",
+    inputs: {
+        required: [],
+        optional: []
+    },
+    blockedConnectionTypes: [],
+    outputExample: {},
+    version: 'v2',
+    transaction: 'read', // this action is read-only
+    databases: ["informixoltp", "topcoder_dw", "common_oltp"],
+    run: function (api, connection, next) {
+        if (connection.dbConnectionMap) {
+            api.log("Execute getMyProfile#run", "debug");
+            if (connection.caller.accessLevel === "anon") {
+                api.helper.handleError(api, connection, new UnauthorizedError("Authentication credential was missing."));
+                next(connection, true);
+            } else {
+                getBasicUserProfile(api, connection.caller.handle, true, connection.dbConnectionMap, connection, next);
+            }
+        } else {
+            api.helper.handleNoConnection(api, connection, next);
+        }
+    }
+};
+
+/**
+ * The API for upload member photo.
+ *
+ * @since 1.16
+ */
+exports.uploadMemberPhoto = {
+    name: 'uploadMemberPhoto',
+    description: 'upload member photo api',
+    inputs: {
+        required: ['photo'],
+        optional: []
+    },
+    blockedConnectionTypes: [],
+    outputExample: {},
+    version: 'v2',
+    cacheEnabled: false,
+    transaction: 'write',
+    databases: ['informixoltp'],
+    run: function (api, connection, next) {
+        if (connection.dbConnectionMap) {
+            api.log("Execute uploadMemberPhoto#run", "debug");
+            uploadMemberPhoto(api, connection, next);
+        } else {
+            api.helper.handleNoConnection(api, connection, next);
+        }
     }
 };

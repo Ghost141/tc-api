@@ -29,7 +29,7 @@ var IllegalArgumentError = require('../errors/IllegalArgumentError');
  * TODO: This is just a temporary implement.
  */
 var PRIVATE_ACTIONS = ['getActiveBillingAccounts', 'getClientChallengeCosts', 'getChallengeCosts',
-        'getChallengeTerms', 'getBasicUserProfile'];
+        'getChallengeTerms', 'getBasicUserProfile', 'getMyProfile', 'getClientActiveChallengeCosts', 'getSoftwareChallenge', 'getStudioChallenge', 'getChallenge'];
 
 /**
  * calculate the key for cache.
@@ -293,8 +293,9 @@ exports.middleware = function (api, next) {
         forceRefresh = api.helper.checkRefresh(connection);
         key = calculateCacheKey(api, connection);
         if (forceRefresh) {
-            postThrottleProcessor(connection, actionTemplate, false, next);
-            next(connection, true);
+            api.log('Force refresh without cache', 'debug');
+            postThrottleProcessor(connection, actionTemplate, true, next);
+            return;
         }
 
         api.helper.getCachedValue(key, function (err, value) {

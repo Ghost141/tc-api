@@ -1,12 +1,12 @@
-/*jslint nomen: true */
+/*jslint node: true, nomen: true */
 /**
  * Copyright (C) 2013 - 2014 TopCoder Inc., All Rights Reserved.
  */
 
 /**
  * This module contains helper functions.
- * @author Sky_, Ghost_141, muzehyun, kurtrips, isv, LazyChild, TCSASSEMBLER
- * @version 1.19
+ * @author Sky_, Ghost_141, muzehyun, kurtrips, isv, LazyChild, hesibo, panoptimum
+ * @version 1.27
  * changes in 1.1:
  * - add mapProperties
  * changes in 1.2:
@@ -54,8 +54,28 @@
  * - added method to load all file types (and cache the result for further use)
  * Changes in 1.18
  * - add checkRefresh method to check if the request is force refresh request.
- * Changes in 1.19:
- * - update method checkAdmin to accept two more input parameters.
+ * changes in 1.19
+ * - updated softwareChallengeTypes
+ * changes in 1.20
+ * - added activation code generation function (copied from memberRegistration.js)
+ * Changes in 1.21:
+ * - add LIST_TYPE_REGISTRATION_STATUS_MAP and VALID_LIST_TYPE.
+ * Changes in 1.22:
+ * - add allTermsAgreed method.
+ * Changes in 1.23:
+ * - add validatePassword method.
+ * - introduce the stringUtils in this file.
+ * - add PASSWORD_HASH_KEY.
+ * changes in 1.24
+ * - add PAYMENT_STATUS
+ * - add checkSortColumn function
+ * - update formatDate function
+ * Changes in 1.25:
+ * - add method transferDBResults2Response.
+ * Changes in 1.26:
+ * - add method formatInformixDate
+ * Changes in 1.27:
+ * - added checkEmailAddress
  */
 "use strict";
 
@@ -73,6 +93,8 @@ if (typeof String.prototype.startsWith !== 'function') {
 var async = require('async');
 var _ = require('underscore');
 var moment = require('moment');
+var stringUtils = require('../common/stringUtils');
+var S = require('string');
 var IllegalArgumentError = require('../errors/IllegalArgumentError');
 var NotFoundError = require('../errors/NotFoundError');
 var BadRequestError = require('../errors/BadRequestError');
@@ -81,6 +103,8 @@ var ForbiddenError = require('../errors/ForbiddenError');
 var RequestTooLargeError = require('../errors/RequestTooLargeError');
 var helper = {};
 var crypto = require("crypto");
+var bigdecimal = require('bigdecimal');
+var bignum = require('bignum');
 
 /**
  * software type.
@@ -108,9 +132,29 @@ helper.both = {
 };
 
 /**
+ * payment status
+ */
+helper.PAYMENT_STATUS = {
+    53 : 'Paid',
+    55 : 'On Hold',
+    56 : 'Owed',
+    65 : 'Cancelled',
+    68 : 'Expired',
+    70 : 'Entered into payment system',
+    71 : 'Accruing'
+};
+
+/**
  * The max value for integer.
  */
 helper.MAX_INT = 2147483647;
+
+/**
+ * HASH KEY For Password
+ *
+ * @since 1.23
+ */
+helper.PASSWORD_HASH_KEY = process.env.PASSWORD_HASH_KEY || 'default';
 
 /**
  * The name in api response to database name map.
@@ -149,7 +193,13 @@ var apiName2dbNameMap = {
     numberofsubmissions: 'number_of_submissions',
     numberofreviewpositionsavailable: 'number_of_review_positions_available',
     round2scheduledstartdate: 'round_2_scheduled_start_date',
-    round1scheduledstartdate: 'round_1_scheduled_start_date'
+    round1scheduledstartdate: 'round_1_scheduled_start_date',
+    postingdate: 'posting_date',
+    numsubmissions: 'num_submissions',
+    numregistrants: 'num_registrants',
+    currentphaseremainingtime: 'current_phase_remaining_time',
+    currentphasename: 'current_phase_name',
+    registrationopen: 'registration_open'
 };
 
 /**
@@ -182,7 +232,7 @@ helper.softwareChallengeTypes = {
         phaseId: 124
     },
     assembly: {
-        name: "Assembly Competition",
+        name: "Assembly",
         phaseId: 125
     },
     ui_prototypes: {
@@ -302,6 +352,38 @@ var phaseName2Id = _.object(_.values(_.extend(helper.studioChallengeTypes, helpe
 }));
 
 /**
+ * Represents a ListType enum
+ * @since 1.21
+ */
+helper.ListType = { ACTIVE: "ACTIVE", OPEN: "OPEN", UPCOMING: "UPCOMING", PAST: "PAST" };
+
+/**
+ * valid value for listType.
+ * @since 1.21
+ */
+helper.VALID_LIST_TYPE = [helper.ListType.ACTIVE, helper.ListType.OPEN, helper.ListType.UPCOMING, helper.ListType.PAST];
+
+/**
+ * The list type and registration phase status map.
+ * @since 1.21
+ */
+helper.LIST_TYPE_REGISTRATION_STATUS_MAP = {};
+helper.LIST_TYPE_REGISTRATION_STATUS_MAP[helper.ListType.ACTIVE] = [2, 3];
+helper.LIST_TYPE_REGISTRATION_STATUS_MAP[helper.ListType.OPEN] = [2];
+helper.LIST_TYPE_REGISTRATION_STATUS_MAP[helper.ListType.UPCOMING] = [1];
+helper.LIST_TYPE_REGISTRATION_STATUS_MAP[helper.ListType.PAST] = [3];
+
+/**
+ * The list type and project status map.
+ * @since 1.21
+ */
+helper.LIST_TYPE_PROJECT_STATUS_MAP = {};
+helper.LIST_TYPE_PROJECT_STATUS_MAP[helper.ListType.ACTIVE] = [1];
+helper.LIST_TYPE_PROJECT_STATUS_MAP[helper.ListType.OPEN] = [1];
+helper.LIST_TYPE_PROJECT_STATUS_MAP[helper.ListType.UPCOMING] = [2];
+helper.LIST_TYPE_PROJECT_STATUS_MAP[helper.ListType.PAST] = [4, 5, 6, 7, 8, 9, 10, 11];
+
+/**
  * Checks whether given object is defined.
  * @param {Object}obj the obj to check.
  * @param {String}objName  the object name
@@ -354,6 +436,25 @@ helper.checkString = function (obj, objName) {
         return new IllegalArgumentError(objName + " should be string.");
     }
     return null;
+};
+
+/**
+ * Check Object given object is email address.
+ * @param {Object} obj the obj to check.
+ * @param {String} objName the obj name.
+ * @return {Error} if invalid or null if valid.
+ * @since 1.22
+ */
+helper.checkEmailAddress = function (obj, objName) {
+    var pattern = /^(?:(?:\w|[\-+])+)(?:\.(?:\w|[\-+])+)*@(?:\w|\-)+(?:\.(?:\w|\-)+)*(?:\.[abcdefghijklmnopqrstuvwxyz]{2,})$/i,
+        error = helper.checkString(obj, objName);
+    if (!error && obj.length > 100) {
+        error = new IllegalArgumentError(objName + " exceeds 100 characters.");
+    }
+    if (!error && !pattern.test(obj)) {
+        error = new IllegalArgumentError(objName + " should be email address.");
+    }
+    return error;
 };
 
 /**
@@ -883,19 +984,7 @@ helper.checkRefresh = function (connection) {
     if (!_.contains(ALLOW_FORCE_REFRESH_ACTIONS, connection.action)) {
         return false;
     }
-    var prop, val;
-    for (prop in connection.params) {
-        if (connection.params.hasOwnProperty(prop)) {
-            if (prop === "refresh") {
-                val = connection.params[prop];
-                if (_.isString(val) && "t" === val.toLowerCase()) {
-                    delete connection.params[prop];
-                    return true;
-                }
-            }
-        }
-    }
-    return false;
+    return connection.params.refresh === 't';
 };
 
 /**
@@ -1013,17 +1102,15 @@ helper.checkDateFormat = function (date, format, objName) {
 /**
  * Check whether given user is Admin or not
  * @param connection
- * @param {String} unauthorizedErrMsg - the error message for unauthorized error.
- * @param {String} forbiddenErrMsg - the error message for forbidden error.
  * @return {Error} if user is not admin
  */
-helper.checkAdmin = function (connection, unauthorizedErrMsg, forbiddenErrMsg) {
+helper.checkAdmin = function (connection) {
     if (!connection.caller || connection.caller.accessLevel === "anon") {
-        return new UnauthorizedError(unauthorizedErrMsg);
+        return new UnauthorizedError();
     }
 
     if (connection.caller.accessLevel === "member") {
-        return new ForbiddenError(forbiddenErrMsg);
+        return new ForbiddenError();
     }
 
     if (connection.caller.accessLevel === "admin") {
@@ -1111,7 +1198,20 @@ helper.checkDates = function (startDate, endDate) {
  */
 helper.formatDate = function (date, format) {
     if (date) {
-        return moment(date).utc().format(format);
+        return moment(date).format(format);
+    }
+    return '';
+};
+
+/**
+ * Format the date value.
+ * @param {String} date - the date value
+ * @param {String} format - the format
+ * @since 1.26
+ */
+helper.formatInformixDate = function (date, format) {
+    if (!_.isUndefined(date)) {
+        return date.substring(0, format.length);
     }
     return '';
 };
@@ -1130,6 +1230,17 @@ helper.checkTrackName = function (track, isStudio) {
 };
 
 /**
+ * Transfer db results to camelize response object.
+ * @param {Object} results - the results from database.
+ * @since 1.25
+ */
+helper.transferDBResults2Response = function (results) {
+    return _.map(results, function (row) {
+        return _.object(_.chain(row).keys().map(function (item) { return new S(item).camelize().s; }).value(), _.values(row));
+    });
+};
+
+/**
  * Checks whether given user is registered or not. If user not exist then NotFoundError is returned to callback.
  *
  * @param {String} handle - the handle to check
@@ -1142,7 +1253,7 @@ helper.checkUserExists = function (handle, api, dbConnectionMap, callback) {
     var cacheKey = "users-" + handle;
     api.helper.getCachedValue(cacheKey, function (err, exists) {
         if (!exists) {
-            // If there is no hit in cache then query DB to check user account for existence and cache positive result 
+            // If there is no hit in cache then query DB to check user account for existence and cache positive result
             // only
             api.log("No hit in users cache for [" + handle + "]. Will query database.", "debug");
             api.dataAccess.executeQuery("check_coder_exist", { handle: handle }, dbConnectionMap, function (err, result) {
@@ -1162,6 +1273,49 @@ helper.checkUserExists = function (handle, api, dbConnectionMap, callback) {
             api.log("There is a hit in users cache for [" + handle + "].", "debug");
             callback(err, null);
         }
+    });
+};
+
+/**
+ * Validate the given password value.
+ * @param {String} password - the password value.
+ * @returns {Object} - Return error if the given password is invalid.
+ * @since 1.23
+ */
+helper.validatePassword = function (password) {
+    var value = password.trim(),
+        configGeneral = helper.api.config.general,
+        i,
+        error;
+    error = helper.checkStringPopulated(password, 'password');
+    if (error) {
+        return error;
+    }
+    if (value.length > configGeneral.maxPasswordLength) {
+        return new IllegalArgumentError('password may contain at most ' + configGeneral.maxPasswordLength + ' characters.');
+    }
+    if (value.length < configGeneral.minPasswordLength) {
+        return new IllegalArgumentError('password must be at least ' + configGeneral.minPasswordLength + ' characters in length.');
+    }
+    for (i = 0; i < password.length; i += 1) {
+        if (!_.contains(stringUtils.PASSWORD_ALPHABET, password.charAt(i))) {
+            return new IllegalArgumentError('Your password may contain only letters, numbers and ' + stringUtils.PUNCTUATION);
+        }
+    }
+
+    return null;
+};
+
+/**
+ * check if the every terms has been agreed
+ *
+ * @param {Array} terms - The terms.
+ * @returns {Boolean} true if all terms agreed otherwise false.
+ * @since 1.22
+ */
+helper.allTermsAgreed = function (terms) {
+    return _.every(terms, function (term) {
+        return term.agreed;
     });
 };
 
@@ -1196,6 +1350,120 @@ helper.getFileTypes = function (api, dbConnectionMap, callback) {
         }
     });
 };
+
+/**
+ * Check sort column.
+ *
+ * @param {Array} sortColumns - the valid sort columns list.
+ * @param {Object} sortColumn - the sort column to check.
+ * @return {Error} if input not valid.
+ *
+ * @since 1.24
+ */
+helper.checkSortColumn = function (sortColumns, sortColumn) {
+    var error = helper.checkArray(sortColumns, "sortColumns");
+    if (error) {
+        return error;
+    }
+    if (helper.getLowerCaseList(sortColumns).indexOf(sortColumn) === -1) {
+        return new IllegalArgumentError("The sort column '" + sortColumn + "' is invalid, it should be element of " + sortColumns + ".");
+    }
+    return null;
+};
+
+/*
+ * this is the random int generator class
+ */
+function codeRandom(coderId) {
+    var cr = {},
+        multiplier = 0x5DEECE66D,
+        addend = 0xB,
+        mask = 281474976710655;
+    cr.seed = bignum(coderId).xor(multiplier).and(mask);
+    cr.nextInt = function () {
+        var oldseed = cr.seed,
+            nextseed;
+        do {
+            nextseed = oldseed.mul(multiplier).add(addend).and(mask);
+        } while (oldseed.toNumber() === nextseed.toNumber());
+        cr.seed = nextseed;
+        return nextseed.shiftRight(16).toNumber();
+    };
+
+    return cr;
+}
+
+/**
+ * get the code string by coderId
+ * @param coderId  the coder id of long type.
+ * @return the coder id generated hash string.
+ */
+function generateActivationCode(coderId) {
+    var r = codeRandom(coderId);
+    var nextBytes = function (bytes) {
+        for (var i = 0, len = bytes.length; i < len;)
+            for (var rnd = r.nextInt(), n = Math.min(len - i, 4); n-- > 0; rnd >>= 8) {
+                var val = rnd & 0xff;
+                if (val > 127) {
+                    val = val - 256;
+                }
+                bytes[i++] = val;
+            }
+    };
+    var randomBits = function(numBits) {
+        if (numBits < 0)
+            throw new Error("numBits must be non-negative");
+        var numBytes = Math.floor((numBits + 7) / 8); // avoid overflow
+        var randomBits = new Int8Array(numBytes);
+
+        // Generate random bytes and mask out any excess bits
+        if (numBytes > 0) {
+            nextBytes(randomBits);
+            var excessBits = 8 * numBytes - numBits;
+            randomBits[0] &= (1 << (8 - excessBits)) - 1;
+        }
+        return randomBits;
+    }
+    var id = coderId + "";
+    var baseHash = bignum(new bigdecimal.BigInteger("TopCoder", 36));
+    var len = coderId.toString(2).length;
+    var arr = randomBits(len);
+    var bb = bignum.fromBuffer(new Buffer(arr));
+    var hash = bb.add(baseHash).toString();
+    while (hash.length < id.length) {
+        hash = "0" + hash;
+    }
+    hash = hash.substring(hash.length - id.length);
+
+    var result = new bigdecimal.BigInteger(id + hash);
+    result = result.toString(36).toUpperCase();
+    return result;
+}
+
+/**
+ * get the coder id string by activation code
+ * @param activationCode the activation code string.
+ * @return the coder id.
+ */
+var getCoderIdFromActivationCode = function (activationCode) {
+    var idhash, coderId;
+
+    try {
+        idhash = bignum(new bigdecimal.BigInteger(activationCode, 36)).toString();
+    } catch (err) {
+        return 0;
+    }
+
+    if (idhash.length % 2 !== 0) {
+        return 0;
+    }
+    coderId = idhash.substring(0, idhash.length / 2);
+
+    return coderId;
+};
+
+helper.getCoderIdFromActivationCode = getCoderIdFromActivationCode;
+helper.generateActivationCode = generateActivationCode;
 
 /**
 * Expose the "helper" utility.
