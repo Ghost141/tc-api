@@ -1,7 +1,7 @@
 /*
  * Copyright (C) 2013 - 2014 TopCoder Inc., All Rights Reserved.
  *
- * @version 1.40
+ * @version 1.41
  * @author vangavroche, Sky_, muzehyun, kurtrips, Ghost_141, ecnu_haozi, hesibo, LazyChild, bugbuka, isv, flytoj2ee, panoptimum
  * Changes in 1.1:
  * - add routes for search challenges
@@ -92,6 +92,8 @@
  * - add routes for payment preference api.
  * Changes in 1.40:
  * - Add routes for new split challenges API.
+ * Changes in 1.41:
+ * - add route for challenge analyze api.
  */
 
 /* ---------------------
@@ -159,6 +161,9 @@ var testMethods = {
 exports.routes = {
     get: [
         { path: "/:apiVersion/logs", action: "getLogTail" },
+        { path: "/:apiVersion/challenges/registrants/:challengeId", action: "getRegistrants" },
+        { path: "/:apiVersion/challenges/submissions/:challengeId", action: "getSubmissions" },
+        { path: "/:apiVersion/challenges/phases/:challengeId", action: "getPhases" },
         { path: "/:apiVersion/challenges/rss", action: "getChallengesRSS" },
         { path: "/:apiVersion/challenges/active", action: "getActiveChallenges" },
         { path: "/:apiVersion/challenges/open", action: "getOpenChallenges" },
@@ -229,6 +234,7 @@ exports.routes = {
 
         { path: "/:apiVersion/download/document/:docId", action: "downloadDocument" },
 
+        { path: "/:apiVersion/reports/analyze", action: "getChallengeAnalyze" },
         { path: "/:apiVersion/reports/client/costs", action: "getClientChallengeCosts" },
         { path: "/:apiVersion/reports/client/activeChallenges", action: "getClientActiveChallengeCosts" },
         { path: "/:apiVersion/reports/costs/:startDate/:endDate", action: "getChallengeCosts" },
